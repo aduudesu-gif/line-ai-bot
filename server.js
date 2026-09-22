@@ -13,6 +13,12 @@ const groq = new OpenAI({
 
 const MODEL = "qwen/qwen3.8-27b";
 
+// 相手ごとの会話記憶
+// Renderが再起動すると消えます
+const conversationMemory = new Map();
+
+const MAX_MEMORY = 20;
+
 app.get("/", (req, res) => {
   res.send("LINE AI Bot is live!");
 });
@@ -55,7 +61,22 @@ app.post("/webhook", async (req, res) => {
 
     const message = event.message;
 
+    // ユーザーを識別するID
+    const userId =
+      event.source?.userId ||
+      event.source?.groupId ||
+      event.source?.roomId ||
+      "unknown";
+
+    // この相手の記憶を取得
+    if (!conversationMemory.has(userId)) {
+      conversationMemory.set(userId, []);
+    }
+
+    const memory = conversationMemory.get(userId);
+
     let userContent;
+    let memoryText = "";
 
     // =========================
     // テキスト
@@ -75,7 +96,7 @@ app.post("/webhook", async (req, res) => {
           type: "text",
           text: `相手が写真・画像を送ってきました。
 
-この画像の内容を理解して、相手が送ってきた画像に対して自然なLINE返信を作ってください。
+画像の内容を理解して、自然なLINE返信を作ってください。
 画像についてコメントする必要がなければ、無理に説明しないでください。`
         },
         {
@@ -91,7 +112,6 @@ app.post("/webhook", async (req, res) => {
     // 動画
     // =========================
     else if (message.type === "video") {
-      // LINEの動画そのものではなくプレビュー画像をAIに見せる
       const previewData = await getLineContent(message.id, true);
 
       userContent = [
@@ -99,9 +119,9 @@ app.post("/webhook", async (req, res) => {
           type: "text",
           text: `相手が動画を送ってきました。
 
-動画のプレビュー画像を見て、内容を可能な範囲で理解してください。
-動画そのものを完全に見ているとは考えず、分からないことは断定しないでください。
-そのうえで、相手に自然なLINE返信を作ってください。`
+動画のプレビュー画像を見て、分かる範囲で内容を理解してください。
+動画全体を見たかのように断定しないでください。
+そのうえで自然なLINE返信を作ってください。`
         },
         {
           type: "image_url",
@@ -123,8 +143,8 @@ app.post("/webhook", async (req, res) => {
 緯度: ${message.latitude}
 経度: ${message.longitude}
 
-この位置情報に対して、自然なLINE返信を作ってください。
-場所について必要以上に詳しく説明しないでください。`;
+この位置情報に対して自然なLINE返信を作ってください。
+住所を必要以上に繰り返さないでください。`;
     }
 
     // =========================
@@ -138,10 +158,9 @@ stickerId: ${message.stickerId}
 stickerResourceType: ${message.stickerResourceType || "不明"}
 
 スタンプ画像そのものは取得できないため、
-packageIdとstickerIdから分かる範囲で考えてください。
+分かる範囲で自然に返信してください。
 
-分からない場合は、スタンプに対して自然に返す短い返信を作ってください。
-無理にスタンプの意味を断定しないでください。`;
+意味が分からない場合は無理に断定しないでください。`;
     }
 
     // =========================
@@ -154,12 +173,34 @@ packageIdとstickerIdから分かる範囲で考えてください。
 自然なLINE返信を短く作ってください。`;
     }
 
-    const completion = await groq.chat.completions.create({
-      model: MODEL,
-      messages: [
-        {
-          role: "system",
-          content: `あなたは僕のLINE返信を代わりに作るAIです。
+    // =========================
+    // 過去の会話をAIに渡す
+    // =========================
+
+    if (memory.length > 0) {
+      memoryText = `
+
+【この相手との最近の会話】
+
+${memory
+  .map(
+    (item) =>
+      `${item.role === "user" ? "相手" : "僕"}: ${item.content}`
+  )
+  .join("\n")}
+
+【記憶の使い方】
+- 過去の会話を参考にしてください
+- 今のメッセージと関係する内容だけ使ってください
+- 過去の内容を無理に話題に出さないでください
+- 知らないことを勝手に記憶したことにしないでください
+`;
+    }
+
+    const messages = [
+      {
+        role: "system",
+        content: `あなたは僕のLINE返信を代わりに作るAIです。
 
 【最重要】
 AIが書いたような文章ではなく、中学2年生の僕が普段LINEで送るような自然な文章を作ってください。
@@ -179,40 +220,53 @@ AIが書いたような文章ではなく、中学2年生の僕が普段LINEで�
 - AIっぽい定型文を避ける
 - 長文にしすぎない
 
-【返信例】
-- 「了解」
-- 「おけ」
-- 「まじ？」
-- 「それな」
-- 「ありがとう！」
-- 「全然いいよ」
-- 「たぶん大丈夫」
+【会話記憶】
+この相手との過去の会話が提供された場合は、それを自然に利用してください。
+ただし、過去の会話を毎回無理に持ち出さないでください。
 
-【画像について】
-画像が送られてきた場合は、画像を見て内容を理解してください。
-ただし、分からないものを勝手に断定しないでください。
+【画像】
+画像が送られてきた場合は画像を見て内容を理解してください。
+分からないものは勝手に断定しないでください。
 
-【動画について】
+【動画】
 動画はプレビュー画像しか見られない場合があります。
 動画全体を見たかのように断定しないでください。
 
-【位置情報について】
-位置情報が送られてきた場合は、場所の情報を自然な会話に使ってください。
+【位置情報】
+位置情報が送られてきた場合は、必要な範囲で自然に利用してください。
 住所を必要以上に繰り返さないでください。
 
-【スタンプについて】
-スタンプ画像そのものが取得できない場合があります。
-分からない場合は無理に意味を断定せず、自然に返信してください。
+【スタンプ】
+スタンプ画像を取得できない場合があります。
+分からない場合は意味を勝手に断定しないでください。
 
 【重要】
 返信だけを出してください。
 説明、理由、前置き、引用符は付けないでください。`
-        },
-        {
-          role: "user",
-          content: userContent
-        }
-      ],
+      }
+    ];
+
+    // 過去の会話を追加
+    if (memoryText) {
+      messages.push({
+        role: "system",
+        content: memoryText
+      });
+    }
+
+    // 今回のメッセージ
+    messages.push({
+      role: "user",
+      content: userContent
+    });
+
+    // =========================
+    // AI返信生成
+    // =========================
+
+    const completion = await groq.chat.completions.create({
+      model: MODEL,
+      messages,
       temperature: 0.7,
       max_tokens: 300
     });
@@ -221,7 +275,37 @@ AIが書いたような文章ではなく、中学2年生の僕が普段LINEで�
       completion.choices?.[0]?.message?.content?.trim() ||
       "ごめん、うまく返信できなかった。";
 
+    // =========================
+    // 会話を記憶
+    // =========================
+
+    let memoryUserText;
+
+    if (typeof userContent === "string") {
+      memoryUserText = userContent;
+    } else {
+      memoryUserText = `[${message.type}が送信された]`;
+    }
+
+    memory.push({
+      role: "user",
+      content: memoryUserText
+    });
+
+    memory.push({
+      role: "assistant",
+      content: reply
+    });
+
+    // 最新20件だけ保存
+    if (memory.length > MAX_MEMORY) {
+      memory.splice(0, memory.length - MAX_MEMORY);
+    }
+
+    // =========================
     // LINEへ返信
+    // =========================
+
     await fetch("https://api.line.me/v2/bot/message/reply", {
       method: "POST",
       headers: {
@@ -240,6 +324,7 @@ AIが書いたような文章ではなく、中学2年生の僕が普段LINEで�
     });
 
     console.log("Message type:", message.type);
+    console.log("Memory size:", memory.length);
     console.log("AI reply:", reply);
 
   } catch (error) {
