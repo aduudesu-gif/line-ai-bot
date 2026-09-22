@@ -28,7 +28,7 @@ app.post("/webhook", async (req, res) => {
     const userMessage = event.message.text;
 
     const completion = await groq.chat.completions.create({
-      model: "llama-3.3-70b-versatile",
+      model: "openai/gpt-oss-120b",
       messages: [
         {
           role: "system",
