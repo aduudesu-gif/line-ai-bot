@@ -58,7 +58,22 @@ ${userMessage}`
       data.candidates?.[0]?.content?.parts?.[0]?.text ||
       "ごめん、うまく返信できなかった。";
 
-    await fetch("https://api.line.me/v2/bot/message/reply", {
+    await fetch("https://api.line.me/v2/bot/message/reply", {await fetch("https://api.line.me/v2/bot/message/push", {
+  method: "POST",
+  headers: {
+    "Content-Type": "application/json",
+    "Authorization": `Bearer ${LINE_TOKEN}`
+  },
+  body: JSON.stringify({
+    to: process.env.ADMIN_USER_ID,
+    messages: [
+      {
+        type: "text",
+        text: `公式LINEにメッセージが届きました。\n\n「${userMessage}」`
+      }
+    ]
+  })
+});
       method: "POST",
       headers: {
         "Content-Type": "application/json",
