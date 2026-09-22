@@ -59,26 +59,8 @@ app.post("/webhook", async (req, res) => {
       completion.choices?.[0]?.message?.content?.trim() ||
       "ごめん、うまく返信できなかった。";
 
-    if (process.env.ADMIN_USER_ID) {
-      await fetch("https://api.line.me/v2/bot/message/push", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${LINE_TOKEN}`
-        },
-        body: JSON.stringify({
-          to: process.env.ADMIN_USER_ID,
-          messages: [
-            {
-              type: "text",
-              text: `公式LINEにメッセージが届きました。\n\n「${userMessage}」\n\nAI返信案：\n「${reply}」`
-            }
-          ]
-        })
-      });
-    }
-
-    await fetch("https://api.line.me/v2/bot/message/reply", {
+   
+   await fetch("https://api.line.me/v2/bot/message/reply", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
