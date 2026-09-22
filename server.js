@@ -1,17 +1,13 @@
 const express = require("express");
-const OpenAI = require("openai");
 
 const app = express();
 app.use(express.json());
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY
-});
-
 const LINE_TOKEN = process.env.LINE_CHANNEL_ACCESS_TOKEN;
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 
 app.get("/", (req, res) => {
-  res.send("LINE AI Bot is running!");
+  res.send("LINE AI Bot is live!");
 });
 
 app.post("/webhook", async (req, res) => {
@@ -26,16 +22,41 @@ app.post("/webhook", async (req, res) => {
 
     const userMessage = event.message.text;
 
-    const response = await openai.responses.create({
-      model: "gpt-5-mini",
-      input: `あなたはLINEの返信AIです。
+    const geminiResponse = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          contents: [
+            {
+              parts: [
+                {
+                  text: `あなたはLINEの返信AIです。
 相手との自然な会話になるように、短く自然な日本語で返信してください。
 
 相手のメッセージ:
 ${userMessage}`
-    });
+                }
+              ]
+            }
+          ]
+        })
+      }
+    );
 
-    const reply = response.output_text;
+    const data = await geminiResponse.json();
+
+    if (!geminiResponse.ok) {
+      console.error("Gemini error:", data);
+      return;
+    }
+
+    const reply =
+      data.candidates?.[0]?.content?.parts?.[0]?.text ||
+      "ごめん、うまく返信できなかった。";
 
     await fetch("https://api.line.me/v2/bot/message/reply", {
       method: "POST",
