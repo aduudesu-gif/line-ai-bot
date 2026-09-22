@@ -28,7 +28,7 @@ app.post("/webhook", async (req, res) => {
     const userMessage = event.message.text;
 
     const completion = await groq.chat.completions.create({
-      model: "lama-3.3-70b-versatile",
+      model: "llama-3.3-70b-versatile",
       messages: [
         {
           role: "system",
